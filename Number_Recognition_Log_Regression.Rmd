@@ -1,0 +1,256 @@
+---
+title: "number_logic"
+author: "Nathaniel Richardson"
+date: "February 8, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+require(readr)
+require(dplyr)
+require(ggplot2)
+```
+
+```{r}
+usps <- read.csv("usps_digit_recognizer.csv")
+```
+
+```{r}
+
+softmax <- function (h) {
+  exp(h) / apply(exp(h), 1, sum)
+}
+   
+cross_entropy <- function(Y, P) {
+  -sum(Y*log(P))
+}
+
+accuracy <- function (Y, P) {
+  val <- c()
+  for (i in 1:length(Y) / 10) {
+    suppressWarnings(tryCatch({
+      val[i] <-as.numeric((which(Y[i, ] == max(Y[i, ]))) == (which(P[i, ] == max(P[i, ]))))
+  }, error = function(e) {
+  val[i] <- 0
+  }))
+  
+  }
+  acc <- (sum(val) / length(val))
+}
+```
+
+```{r}
+one_hot_encoding <- function(x){
+  
+N = length(x)
+K = length(unique(x))
+u <- sort(unique(x), decreasing = FALSE)
+ind =1
+q <-c()
+encoded_df <- data_frame("1" <-  c(1:K))
+
+for (i in x){
+  count = 1
+  for (c in u){
+    if (x[ind] == u[count]){
+      q <- rep(0, times = K)
+      q[count] <- 1
+      encoded_df[ind] <- q
+    }
+    count = count+1
+  }
+  ind = ind+1
+} 
+encoded_df <- t(encoded_df)
+
+}
+```
+
+
+```{r}
+Y <- one_hot_encoding(usps$label)
+```
+
+```{r}
+X <- usps %>%
+  select(
+    -label
+    )
+X <- X/255
+```
+
+
+```{r}
+X_cross <-  X[2:707]*X[3:708]
+```
+
+```{r}
+X<-cbind(X, X_cross)
+```
+
+```{r}
+X_cross2 <-  X[2:680]*X[30:708]
+```
+
+```{r}
+X<-cbind(X, X_cross2)
+```
+
+```{r}
+ EX <- data_frame(X[1])
+ ind =1
+  for (i in 1:length(X))
+  {
+    if (sum(X[i])!=0){
+      EX[ind] <- X[i]
+      ind = ind+1
+    }
+  }
+ X<- EX
+ 
+```
+
+```{r}
+Y_t <- as.matrix(Y[1:25200,])
+Phi_t <- X[1:25200,]
+Phi_t <- as.matrix(cbind(1,Phi_t))
+```
+
+
+```{r}
+w_rand <- as.matrix(replicate(10, runif(ncol(Phi_t))))
+```
+
+
+```{r}
+w <- w_rand
+J = c()
+eta = 3e-5
+epochs = 2500
+en <- c()
+
+for (i in 1 : epochs){
+    P_t = softmax(Phi_t %*% w)
+    J[i] <- (cross_entropy(Y_t,P_t)) 
+    w <- w-eta*(t(Phi_t)%*%(P_t-Y_t)) 
+    en[i] <- i
+    if(i%%50==0){
+      acc <- accuracy(Y_t,P_t)
+     print(paste0("Epoch: ", i, " | Accuracy: %", signif(acc*100, digits = 4)))
+     
+    }
+}
+    
+```
+
+```{r}
+plot(x=en,y=J)
+J_plot <- data.frame(
+  "epochs" = en,
+   "J" = J
+ )
+```
+
+```{r}
+Y_v <- as.matrix(Y[25200:33600,])
+Phi_v <- X[25200:33600,]
+Phi_v <- as.matrix(cbind(1,Phi_v))
+```
+`
+
+```{r}
+acc_cv<- c(0)
+lam1<- c(1)
+lam2 <- c(1)
+epochs = 500
+ind = 1
+index <- c()
+eta = 1e-5
+
+for (l2 in 0:15){
+  for (l1 in 0:15){
+    w_copy <- w 
+    for (i in 1:epochs){
+      w_copy <- w_copy-eta*((t(Phi_t)%*%(P_t-Y_t)) + l2*w_copy + (l1*sign(w_copy)))
+      P_v = softmax(Phi_v%*%w_copy)
+    }
+    lam1[ind]<- l1
+    lam2[ind] <-l2
+    acc_cv[ind] <- accuracy(Y_v,P_v)
+    index[ind] <- ind
+    ind = ind +1
+  }
+  print(paste0("l2 ", l2," | Accuracy ", signif(accuracy(Y_v,P_v)*100, digits = 4)))
+}
+```
+
+```{r}
+cvDF <- data.frame(
+  "ind" <- index,
+  "Accuracy" <- acc_cv,
+  "Lambda1" <- lam1,
+  "Lambda2" <- lam2
+  
+)
+
+colnames(cvDF)[1] <- "ind"
+colnames(cvDF)[2] <- "Accuracy"
+colnames(cvDF)[3] <- "Lambda1"
+colnames(cvDF)[4] <- "Lambda2"
+
+
+```
+
+```{r}
+cvDF%>%
+ggplot(aes(x = ind))+
+  #geom_line(y = Lambda1, color = "Black")+
+  #geom_line(y = Lambda2, color = "Red")+
+  geom_line(y = Accuracy, color = "Blue")+
+  ylim(0, 1)
+```
+
+```{r}
+cvDF%>%
+filter( cvDF$Accuracy == max(cvDF$Accuracy))
+```
+
+```{r}
+#choose 3 to be best l2 and 0 to be best l1
+
+epochs = 1000
+eta = 3e-5
+w_l2 <- w 
+    for (i in 1:epochs){
+      w_l2 <- w_l2-eta*((t(Phi_t)%*%(P_t-Y_t))+ l2*w_l2 )
+      P_t = softmax(Phi_t%*%w_copy)
+    if (i%%50==0){
+    print(paste0("epoch ", i," | Accuracy ", signif(accuracy(Y_t,P_t)*100, digits = 4)))
+    }
+}
+
+```
+
+
+```{r}
+P_v = softmax(Phi_v %*% w)
+acc_v <- accuracy(Y_v,P_v)
+print(paste0("Accuracy: %", signif(acc_v*100, digits = 4)))
+```
+
+
+```{r}
+Y_test <- as.matrix(Y[33600:42000,])
+Phi_test <- X[33600:42000,]
+Phi_test <- as.matrix(cbind(1,Phi_test))
+```
+
+```{r}
+P_test = softmax(Phi_test %*% w)
+acc_test <- accuracy(Y_test,P_test)
+print(paste0("Accuracy: %", signif(acc_test*100, digits = 4)))
+```
